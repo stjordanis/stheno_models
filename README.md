@@ -1,2 +1,2 @@
-# stheno_models
-Model Zoo for Stheno.jl
+# Stheno Models
+Model Zoo for [Stheno.jl](https://github.com/willtebbutt/Stheno.jl)
