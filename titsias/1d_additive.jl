@@ -1,13 +1,13 @@
-using Stheno, Plots, Random
-plotly();
+using Stheno, Plots, Random, Statistics
 
-# Define model.
+
+# Define model. This uses the @model-free way of doing things.
 σ_noise, ω, T = 1e0, 1.0, 25.0;
 gpc = GPC();
-f₁ = GP(periodic(EQ(), ω), gpc);
-f₂ = GP(scale(EQ(), 0.1), gpc);
+f₁ = periodic(GP(eq(), gpc), ω);
+f₂ = stretch(GP(eq(), gpc), 0.1);
 f₃ = f₁ + f₂;
-y = f₃ + GP(Noise(σ_noise^2), gpc);
+y = f₃ + GP(noise(α=σ_noise^2), gpc);
 
 # Sample from marginal process to generate toy data.
 rng, S = MersenneTwister(123456), 25;
@@ -39,6 +39,8 @@ items = [
     (μ₂′, σ₂′, f₂′Xp, :red, "", f₂′_plot),
     (μ₃′, σ₃′, f₃′Xp, :red, "", f₃′_plot),
 ];
+
+plotly();
 
 # Posterior marginal variance.
 for (μ, σ, _, colour, name, plt) in items
