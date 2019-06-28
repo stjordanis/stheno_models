@@ -493,7 +493,8 @@ let
     ms_f′ = marginals(f′(t, 1e-9));
 
     pyplot();
-    posterior_plot = plot();
+    posterior_plot = plot(; ylim=(-0.5, 1.5));
+    posterior_plot_f = plot(; ylim=(-0.5, 1.5), yaxis=false);
 
     # Plot posterior marginal variances
     plot!(posterior_plot, t, [mean.(ms_b′) mean.(ms_b′)];
@@ -508,7 +509,7 @@ let
         fillalpha=0.3,
         fillcolor=:blue,
         label="");
-    plot!(posterior_plot, t, [mean.(ms_f′) mean.(ms_f′)];
+    plot!(posterior_plot_f, t, [mean.(ms_f′) mean.(ms_f′)];
         linewidth=0.0,
         fillrange=[mean.(ms_f′) .- 3 .* std.(ms_f′), mean.(ms_f′) .+ 3 * std.(ms_f′)],
         fillalpha=0.3,
@@ -524,7 +525,7 @@ let
         linecolor=:blue,
         linealpha=0.2,
         label="");
-    plot!(posterior_plot, t, f′s,
+    plot!(posterior_plot_f, t, f′s,
         linecolor=:red,
         linealpha=0.2,
         label="");
@@ -538,29 +539,30 @@ let
         linecolor=:blue,
         linewidth=1,
         label="f_per");
-    plot!(posterior_plot, t, mean.(ms_f′);
+    plot!(posterior_plot_f, t, mean.(ms_f′);
         linecolor=:red,
         linewidth=1,
         label="f");
 
     # Plot observations
-    scatter!(posterior_plot, ttr, ystr;
+    scatter!(posterior_plot_f, ttr, ystr;
         markercolor=:black,
         markershape=:circle,
         markerstrokewidth=0.0,
         markersize=2,
         markeralpha=0.5,
         label="");
-    scatter!(posterior_plot, tte, yste;
+    scatter!(posterior_plot_f, tte, yste;
         markercolor=:purple,
         markershape=:circle,
         markerstrokewidth=0.0,
         markersize=2,
-        markeralpha=0.3,
+        markeralpha=0.5,
         label="");
 
     # display(posterior_plot);
-    savefig(posterior_plot, "flux/periodic-gp-only-sawtooth-learning.pdf")
+    posterior_plot_joint = plot(posterior_plot, posterior_plot_f);
+    savefig(posterior_plot_joint, "flux/periodic-gp-only-sawtooth-learning.pdf")
 end
 
 
