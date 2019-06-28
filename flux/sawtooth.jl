@@ -409,14 +409,27 @@ end
 
 
 #
-# Fit approximately-periodic GP to the data
+# Fit periodic GP to the data
 #
+
+# @model function gp_model(θ)
+
+#     l_per, period = to_pos(first(θ[:log_l_per])), to_pos(first(θ[:log_period]))
+#     l_mod, σ_per = to_pos(first(θ[:log_l_mod])), to_pos(first(θ[:log_σ_per]))
+#     f_per = σ_per * GP(periodic(eq(α=l_per), 1 / period) * eq(α=l_mod))
+
+#     l_b, σ_b = to_pos(first(θ[:log_l_b])), to_pos(first(θ[:log_σ_b]))
+#     b = σ_b * GP(eq(α=l_b))
+
+#     f = b + f_per
+#     return b, f_per, f
+# end
 
 @model function gp_model(θ)
 
-    l_per, period = to_pos(first(θ[:log_l_per])), to_pos(first(θ[:log_period]))
-    l_mod, σ_per = to_pos(first(θ[:log_l_mod])), to_pos(first(θ[:log_σ_per]))
-    f_per = σ_per * GP(periodic(eq(α=l_per), 1 / period) * eq(α=l_mod))
+    l_per, period = to_pos(first(θ[:log_l_per])), to_pos(first(θ[:log_period])) * 100
+    σ_per = to_pos(first(θ[:log_σ_per]))
+    f_per = σ_per * GP(periodic(eq(α=l_per), 1 / period))
 
     l_b, σ_b = to_pos(first(θ[:log_l_b])), to_pos(first(θ[:log_σ_b]))
     b = σ_b * GP(eq(α=l_b))
@@ -425,46 +438,20 @@ end
     return b, f_per, f
 end
 
-
-# θ_gp = Dict(
-#     :log_l_per => [logexpm1(1.0)],
-#     :log_period => [logexpm1(100)],
-#     :log_l_mod => [logexpm1(1e-2)],
-#     :log_σ_per => [logexpm1(1)],
-#     :log_l_b => [logexpm1(1e-2)],
-#     :log_σ_b => [logexpm1(1e-1)],
-# );
-
 θ_gp = Dict(
     :log_l_per => [log(1.0)],
-    :log_period => [log(100)],
-    :log_l_mod => [log(1e-2)],
-    :log_σ_per => [log(1)],
-    :log_l_b => [log(1e-2)],
-    :log_σ_b => [log(1e-1)],
+    :log_period => [log(0.5)],
+    # :log_l_mod => [log(1e-2)],
+    :log_σ_per => [log(0.5)],
+    :log_l_b => [log(1e-1)],
+    :log_σ_b => [log(0.5)],
+    :log_σ_obs => [log(1e-1)],
 );
 
 function nlml_gp_model(θ, t, y)
     _, _, f = gp_model(θ)
-    return -logpdf(f(t, 1e-3), y)
+    return -logpdf(f(t, to_pos(first(θ[:log_σ_obs]))), y)
 end
-
-
-# eta = 1e-3;
-# opt = Dict([(key, ADAM(eta, (0.9, 0.999))) for key in keys(θ_gp)]);
-# let
-#     iters = 100;
-#     p = ProgressMeter.Progress(iters);
-
-#     for iter in 1:iters
-#         ls, back = Zygote.forward(nlml_gp_model, θ_gp, ttr, ystr)
-#         dθ, _, _ = back(1.0)
-#         for key in keys(opt)
-#             Flux.Optimise.update!(opt[key], θ_gp[key], dθ[key])
-#         end
-#         ProgressMeter.next!(p; showvalues=[(:iter, iter), (:nlml, ls)])
-#     end
-# end
 
 # Construct Optim objective and gradient evaluation.
 using FDM: to_vec
@@ -477,7 +464,7 @@ function dθ_nlml_gp_model_optim(vec_θ)
     return first(to_vec(dθ))
 end
 
-options = Optim.Options(show_trace = true, iterations = 10);
+options = Optim.Options(show_trace = true, iterations = 25);
 results = optimize(
     nlml_gp_model_optim,
     dθ_nlml_gp_model_optim,
@@ -509,12 +496,6 @@ let
     posterior_plot = plot();
 
     # Plot posterior marginal variances
-    plot!(posterior_plot, t, [mean.(ms_f′) mean.(ms_f′)];
-        linewidth=0.0,
-        fillrange=[mean.(ms_f′) .- 3 .* std.(ms_f′), mean.(ms_f′) .+ 3 * std.(ms_f′)],
-        fillalpha=0.3,
-        fillcolor=:red,
-        label="");
     plot!(posterior_plot, t, [mean.(ms_b′) mean.(ms_b′)];
         linewidth=0.0,
         fillrange=[mean.(ms_b′) .- 3 .* std.(ms_b′), mean.(ms_b′) .+ 3 * std.(ms_b′)],
@@ -527,12 +508,14 @@ let
         fillalpha=0.3,
         fillcolor=:blue,
         label="");
+    plot!(posterior_plot, t, [mean.(ms_f′) mean.(ms_f′)];
+        linewidth=0.0,
+        fillrange=[mean.(ms_f′) .- 3 .* std.(ms_f′), mean.(ms_f′) .+ 3 * std.(ms_f′)],
+        fillalpha=0.3,
+        fillcolor=:red,
+        label="");
 
     # Plot joint posterior samples
-    plot!(posterior_plot, t, f′s,
-        linecolor=:red,
-        linealpha=0.2,
-        label="");
     plot!(posterior_plot, t, b′s,
         linecolor=:green,
         linealpha=0.2,
@@ -541,12 +524,12 @@ let
         linecolor=:blue,
         linealpha=0.2,
         label="");
+    plot!(posterior_plot, t, f′s,
+        linecolor=:red,
+        linealpha=0.2,
+        label="");
 
     # Plot posterior means
-    plot!(posterior_plot, t, mean.(ms_f′);
-        linecolor=:red,
-        linewidth=1,
-        label="f");
     plot!(posterior_plot, t, mean.(ms_b′);
         linecolor=:green,
         linewidth=1,
@@ -555,6 +538,10 @@ let
         linecolor=:blue,
         linewidth=1,
         label="f_per");
+    plot!(posterior_plot, t, mean.(ms_f′);
+        linecolor=:red,
+        linewidth=1,
+        label="f");
 
     # Plot observations
     scatter!(posterior_plot, ttr, ystr;
@@ -573,7 +560,7 @@ let
         label="");
 
     # display(posterior_plot);
-    savefig(posterior_plot, "flux/gp-only-sawtooth-learning.pdf")
+    savefig(posterior_plot, "flux/periodic-gp-only-sawtooth-learning.pdf")
 end
 
 
