@@ -1,8 +1,30 @@
-using Turing, Stheno, Plots, Flux
+using Turing, Stheno, Plots, Flux, LinearAlgebra
 using Stheno: TuringGPC
 using Turing: @model
+using LinearAlgebra: AbstractTriangular
 
 Turing.setadbackend(:reverse_diff)
+
+#
+# Define extra methods for Tracker
+#
+
+import Base: *, \
+function *(A::Adjoint{T, <:AbstractTriangular{T}} where {T<:Real}, x::TrackedVector{<:Real})
+    return Tracker.track(*, A, x)
+end
+function *(A::Transpose{T, <:AbstractTriangular{T}} where {T<:Real}, x::TrackedVector{<:Real})
+    return Tracker.track(*, A, x)
+end
+*(A::AbstractTriangular{<:Real}, x::TrackedVector{<:Real}) = Tracker.track(*, A, x)
+
+function \(
+    A::Adjoint{T, <:Union{LowerTriangular{T}, UpperTriangular{T}}} where {T<:Real},
+    x::TrackedVector{<:Real},
+)
+    return Tracker.track(\, A, x)
+end
+*(A::TrackedMatrix{<:Real}, X::AbstractTriangular{<:Real}) = Tracker.track(*, A, x)
 
 
 
@@ -10,16 +32,16 @@ Turing.setadbackend(:reverse_diff)
 # Define a vaguely interesting non-Gaussian regression problem
 #
 
-N = 25;
+N = 100;
 x = collect(range(-5.0, 5.0; length=N));
 x_pr = collect(range(-5.0, 5.0; length=100));
 
 @model gaussian_regression(y) = begin
     f = GP(eq(), TuringGPC())
     fx ~ f(x, 1e-9)
-    fx_pr ~ f(x_pr, 1e-9)
+    # fx_pr ~ f(x_pr, 1e-9)
     y ~ Product(Normal.(fx, 0.1))
-    return fx, fx_pr, y
+    return fx, y
 end
 
 
@@ -28,7 +50,7 @@ end
 # Sample from the prior and plot it
 #
 
-fx, fx_pr, y = gaussian_regression()();
+fx, y = gaussian_regression()();
 
 plotly();
 plot(x, fx; label="Latent at observations");
@@ -41,13 +63,21 @@ plot!(x_pr, fx_pr; label="")
 # Do posterior inference via HMC (NUTS)
 #
 
-chain = sample(gaussian_regression(y), NUTS(2, 0, 0.6));
+N, N_burn, N_thin = 1000, 0, 1;
+chain = sample(gaussian_regression(y), NUTS(N, N_burn, 0.6));
+
 fx_slices = get(chain, :fx)[1];
 fx_samples = Float64.(hcat(fx_slices...));
 
-plot(x, fx_samples[200:50:end, :]'; label="", linecolor=:red);
+# fx_pr_slices = get(chain, :fx_pr)[1];
+# fx_pr_samples = Float64.(hcat(fx_pr_slices...));
+
+plot(x, fx_samples[N_burn+1:N_thin:end, :]'; label="", linecolor=:red);
 scatter!(x, y);
 plot!(x, fx; linecolor=:blue)
+
+# plot!(x_pr, fx_pr_samples[N_burn+1:N_thin:end, :]'; linecolor=:green, label="")
+
 
 
 
