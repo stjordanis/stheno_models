@@ -1,5 +1,5 @@
 using Random, Stheno, Flux, Plots, Zygote, ProgressMeter, FDM, Optim, StatsFuns
-plotly();
+pyplot();
 
 
 to_pos(θ::Real) = exp(θ) + 1e-9
@@ -20,31 +20,32 @@ function to_ar_data(x::Vector{T}, N::Int, pad::Vector{T}) where {T}
     return reverse(X; dims=1)
 end
 
-
-
 #
 # Set up sawtooth.
 #
 
 # Define sawtooth with unit period.
-sawtooth(x) = mod(x, 1)
+sawtooth(x) = mod(x, 1) - 0.5
 
-# Plot it for sanity.
-x = collect(range(1.0, 10.0; length=1000));
-
-# reformat `x` into an `N x length(x)` matrix
-x = collect(range(1.0, 10.0; length=1000));
+# Generate data to plot
+x = collect(1.0:0.01:10.0);
+# x = collect(range(1.0, 10.0; length=1000));
 y = sawtooth.(x);
 
+plt = plot();
+plot!(plt, x, y; linecolor=:blue, linewidth=2, label="");
+savefig(plt, "flux/vanilla_sawtooth.pdf");
+
 # Convert to autoregressive-format.
-N = 9;
+N = 5;
 y_target, y_pad = y[N+1:end], y[1:N];
 Y = to_ar_data(y_target, N, y_pad);
 
-function predict(θ, Y)
+# Zygote.refresh();
+function predict(θ, Y, nonlinearity)
     return vec(Chain(
-        x->Dense(θ[:W1], θ[:b1])(x),
-        x->Dense(θ[:W2], θ[:b2])(x) + x,
+        x->Dense(θ[:W1], θ[:b1], nonlinearity)(x),
+        x->Dense(θ[:W2], θ[:b2], nonlinearity)(x) + x,
         x->Dense(θ[:W3], θ[:b3])(x),
     )(Y))
 end
@@ -59,7 +60,7 @@ Dh = 50
     :b3 => 0.1 .* randn(1),
 )
 
-loss(θ, Y, y) = mean(abs2, y - predict(θ, Y))
+loss(θ, Y, y, nonlinearity) = mean(abs2, y - predict(θ, Y, nonlinearity))
 
 
 #
@@ -69,11 +70,11 @@ loss(θ, Y, y) = mean(abs2, y - predict(θ, Y))
 eta = 1e-3;
 opt = Dict([(key, ADAM(eta, (0.9, 0.999))) for key in keys(θ)])
 
-iters = 1_000;
+iters = 10_000;
 p = ProgressMeter.Progress(iters);
 
 for iter in 1:iters
-    ls, back = Zygote.forward(loss, θ, Y, y_target)
+    ls, back = Zygote.forward(loss, θ, Y, y_target, relu)
     dθ, _, _ = back(1.0)
     for key in keys(opt)
         Flux.Optimise.update!(opt[key], θ[key], dθ[key])
@@ -87,10 +88,10 @@ end
 # Predict using NN
 #
 
-ypr = predict(θ, Y);
+ypr = predict(θ, Y, relu);
+
 plot(x[N+1:end], y_target; label="Truth", linecolor=:red);
 plot!(x[N+1:end], ypr; label="Pr", linecolor=:blue)
-
 
 plot(x[N+1:end], y_target - ypr)
 
@@ -103,16 +104,6 @@ plot(x[N+1:end], y_target - ypr)
 #
 # GP-modulated sawtooth model
 #
-
-θ_gp = merge(
-    θ, 
-    Dict(
-        :log_σw => 0.1 .* randn(1),
-        :log_σb => 0.1 .* randn(1),
-        :log_lw => 0.1 .* randn(1),
-        :log_lb => 0.1 .* randn(1),
-    ),
-);
 
 using Stheno: @model
 
@@ -131,11 +122,13 @@ Zygote.@adjoint (::Type{T})(dt::Vector) where T<:DataTransform = T(dt), ȳ -> (
     σw, σb = exp(first(θ[:log_σw])) + 1e-6, exp(first(θ[:log_σb])) + 1e-6
     lw, lb = exp(first(θ[:log_lw])) + 1e-6, exp(first(θ[:log_lb])) + 1e-6
 
-    w = σw * stretch(GP(eq()), lw) + 1
-    b = σb * stretch(GP(eq()), lb)
-    f = b + w * DataTransform(predict(θ, Y))
+    w = σw * stretch(GP(first(θ[:m_w]), eq()), lw) + 1
+    b = σb * stretch(GP(first(θ[:m_b]), eq()), lb)
+    f = b + w * DataTransform(predict(θ, Y, relu))
     return w, b, f
 end
+
+
 
 #
 # Generate some toy data
@@ -148,13 +141,18 @@ end
         :log_σb => [log(0.1)],
         :log_lw => [log(1e-2)],
         :log_lb => [log(1e-2)],
+        :m_w => [0.0],
+        :m_b => [0.0],
     ),
 );
 
 T = 1000;
 t = collect(1:size(Y, 2));
-w, b, f = modulation_gps(θ0, Y);
-ws, bs, ys = rand([w(t, 1e-6), b(t, 1e-6), f(t, 1e-3)]);
+w, b, _ = modulation_gps(θ0, Y);
+ws, bs = rand(MersenneTwister(123456), [w(t, 1e-6), b(t, 1e-6)]);
+fs = ws .* sawtooth.(x[N+1:end]) .+ bs;
+ys = fs .+ sqrt(1e-3) .* randn(MersenneTwister(123456), length(fs));
+
 
 plot(ys; linecolor=:red, label="y");
 plot!(ws; linecolor=:blue, label="w");
@@ -165,149 +163,66 @@ Ytr, Yte = Y[:, 1:Ntr], Y[:, Ntr+1:end];
 ystr, yste = ys[1:Ntr], ys[Ntr+1:end];
 ttr, tte = t[1:Ntr], t[Ntr+1:end];
 
-#
-# Learn optimal parameters
-#
-
-function nlml_gp(θ, Y, t, y)
-    w, b, f = modulation_gps(θ, Y)
-    return -logpdf(f(t, 1e-3), y)
-end
-
-eta = 1e-3;
-opt = Dict([(key, ADAM(eta, (0.9, 0.999))) for key in keys(θ)]);
-
-iters = 10;
-p = ProgressMeter.Progress(iters);
-
-for iter in 1:iters
-    ls, back = Zygote.forward(nlml_gp, θ0, Ytr, ttr, ystr)
-    dθ, _, _ = back(1.0)
-    for key in keys(opt)
-        Flux.Optimise.update!(opt[key], θ[key], dθ[key])
-    end
-    ProgressMeter.next!(p; showvalues=[(:iter, iter), (:nlml, ls)])
-end
-
-
-#
-# Make predictions
-#
-
-w, b, f = modulation_gps(θ0, Y);
-w′, b′, f′ = (w, b, f) | (f(ttr, 1e-3) ← ystr);
-
-w′s, b′s, f′s = rand([w′(t, 1e-9), b′(t, 1e-9), f′(t, 1e-9)], 11);
-
-ms_w′ = marginals(w′(t, 1e-9));
-ms_b′ = marginals(b′(t, 1e-9));
-ms_f′ = marginals(f′(t, 1e-9));
-
-plotly();
-posterior_plot = plot();
-
-# Plot posterior marginal variances
-plot!(posterior_plot, t, [mean.(ms_f′) mean.(ms_f′)];
-    linewidth=0.0,
-    fillrange=[mean.(ms_f′) .- 3 .* std.(ms_f′), mean.(ms_f′) .+ 3 * std.(ms_f′)],
-    fillalpha=0.3,
-    fillcolor=:red,
-    label="");
-plot!(posterior_plot, t, [mean.(ms_b′) mean.(ms_b′)];
-    linewidth=0.0,
-    fillrange=[mean.(ms_b′) .- 3 .* std.(ms_b′), mean.(ms_b′) .+ 3 * std.(ms_b′)],
-    fillalpha=0.3,
-    fillcolor=:green,
-    label="");
-plot!(posterior_plot, t, [mean.(ms_w′) mean.(ms_w′)];
-    linewidth=0.0,
-    fillrange=[mean.(ms_w′) .- 3 .* std.(ms_w′), mean.(ms_w′) .+ 3 * std.(ms_w′)],
-    fillalpha=0.3,
-    fillcolor=:blue,
-    label="");
-
-# Plot joint posterior samples
-plot!(posterior_plot, t, f′s,
-    linecolor=:red,
-    linealpha=0.2,
-    label="");
-plot!(posterior_plot, t, b′s,
-    linecolor=:green,
-    linealpha=0.2,
-    label="");
-plot!(posterior_plot, t, w′s,
-    linecolor=:blue,
-    linealpha=0.2,
-    label="");
-
-# Plot posterior means
-plot!(posterior_plot, t, mean.(ms_f′);
-    linecolor=:red,
-    linewidth=2.0,
-    label="f");
-plot!(posterior_plot, t, mean.(ms_b′);
-    linecolor=:green,
-    linewidth=2.0,
-    label="b");
-plot!(posterior_plot, t, mean.(ms_w′);
-    linecolor=:blue,
-    linewidth=2.0,
-    label="w");
-
-# Plot observations
-scatter!(posterior_plot, ttr, ystr;
-    markercolor=:black,
-    markershape=:circle,
-    markerstrokewidth=0.0,
-    markersize=2,
-    markeralpha=0.5,
-    label="");
-scatter!(posterior_plot, tte, yste;
-    markercolor=:purple,
-    markershape=:circle,
-    markerstrokewidth=0.0,
-    markersize=2,
-    markeralpha=0.3,
-    label="");
-
-display(posterior_plot);
-
-
-
-
 
 
 #
 # Learning the NN as well.
 #
 
+Zygote.refresh()
+function nlml_gp(θ, Y, t, y)
+
+    reg_loss = 0.0
+    for key in keys(θ)
+        reg_loss += 1e-2 * sum(abs2, θ[key])
+    end
+
+    w, b, f = modulation_gps(θ, Y)
+    return -logpdf(f(t, exp(first(θ[:log_σ_noise]))), y)
+end
+
+rng = MersenneTwister(123457);
 θ_1 = Dict(
-    :W1 => 0.1 .* randn(Dh, N),
-    :b1 => 0.1 .* randn(Dh),
-    :W2 => 0.1 .* randn(Dh, Dh),
-    :b2 => 0.1 .* randn(Dh),
-    :W3 => 0.1 .* randn(1, Dh),
-    :b3 => 0.1 .* randn(1),
+    :W1 => 0.01 .* randn(rng, Dh, N),
+    :b1 => 0.01 .* randn(rng, Dh),
+    :W2 => 0.01 .* randn(rng, Dh, Dh),
+    :b2 => 0.01 .* randn(rng, Dh),
+    :W3 => 0.01 .* randn(rng, 1, Dh),
+    :b3 => 0.01 .* randn(rng, 1),
     :log_σw => [log(0.1)],
     :log_σb => [log(0.1)],
     :log_lw => [log(1e-2)],
     :log_lb => [log(1e-2)],
+    :log_σ_noise => [log(1e-3)],
+    :m_w => [1e-6],
+    :m_b => [1e-6],
 );
 
 
 eta = 1e-3;
 opt = Dict([(key, ADAM(eta, (0.9, 0.999))) for key in keys(θ_1)]);
 
-iters = 500;
+# Run this block a few times to actually optimise. Look at the learning curve (plotted
+# below) to assess convergence.
+iters = 10_000;
 p = ProgressMeter.Progress(iters);
-
+ls = Vector{Float64}(undef, iters);
 for iter in 1:iters
-    ls, back = Zygote.forward(nlml_gp, θ_1, Ytr, ttr, ystr)
-    dθ, _, _ = back(1.0)
+    l, back = Zygote.forward(nlml_gp, θ_1, Ytr, ttr, ystr)
+    ls[iter] = l
+    dθ, _, _, _ = back(1.0)
+
     for key in keys(opt)
         Flux.Optimise.update!(opt[key], θ_1[key], dθ[key])
     end
-    ProgressMeter.next!(p; showvalues=[(:iter, iter), (:nlml, ls)])
+
+    show_vals = [
+        (:iter, iter),
+        (:nlml, l),
+        (:m_w, first(θ_1[:m_w])),
+        (:dθ_m_w, first(dθ[:m_w])),
+    ]
+    ProgressMeter.next!(p; showvalues=show_vals)
 end
 
 
@@ -324,7 +239,7 @@ let
 
     ms_w′ = marginals(w′(t, 1e-9));
     ms_b′ = marginals(b′(t, 1e-9));
-    ms_f′ = marginals(f′(t, 1e-9));
+    ms_f′ = marginals(f′(t, exp(first(θ_1[:log_σ_noise]))));
 
     pyplot();
     posterior_plot = plot();
@@ -364,7 +279,7 @@ let
         label="");
 
     # Plot posterior means
-    plot!(posterior_plot, t, predict(θ_1, Y);
+    plot!(posterior_plot, t, predict(θ_1, Y, relu);
         linecolor=:black,
         linewidth=1,
         label="nn");
@@ -399,12 +314,54 @@ let
 
     # display(posterior_plot);
     savefig(posterior_plot, "flux/gp-sawtooth-learning.pdf")
+
+    #
+    # Plot learning curve
+    #
+    learning_curve = plot();
+    plot!(learning_curve, ls)
+    savefig(learning_curve, "flux/learning-curve-gp-sawtooth-learning.pdf")
+
+
+    #
+    # Plot only predictions over the training and test data.
+    #
+    prediction_plot = plot()
+    plot!(prediction_plot, t, [mean.(ms_f′) mean.(ms_f′)];
+        linewidth=0.0,
+        fillrange=[mean.(ms_f′) .- 3 .* std.(ms_f′), mean.(ms_f′) .+ 3 * std.(ms_f′)],
+        fillalpha=0.3,
+        fillcolor=:red,
+        label="");
+    plot!(prediction_plot, t, f′s,
+        linecolor=:red,
+        linealpha=0.2,
+        label="");
+    plot!(prediction_plot, t, predict(θ_1, Y, relu);
+        linecolor=:black,
+        linewidth=1,
+        label="nn");
+    plot!(prediction_plot, t, mean.(ms_f′);
+        linecolor=:red,
+        linewidth=1,
+        label="f");
+
+    scatter!(prediction_plot, ttr, ystr;
+        markercolor=:black,
+        markershape=:circle,
+        markerstrokewidth=0.0,
+        markersize=2,
+        markeralpha=0.5,
+        label="");
+    scatter!(prediction_plot, tte, yste;
+        markercolor=:purple,
+        markershape=:circle,
+        markerstrokewidth=0.0,
+        markersize=2,
+        markeralpha=0.3,
+        label="");
+    savefig(prediction_plot, "flux/gp-sawtooth-learning-preds.pdf")
 end
-
-
-
-
-
 
 
 

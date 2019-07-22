@@ -1,3 +1,6 @@
+
+using Revise
+
 using Turing, Stheno, Plots, Flux, LinearAlgebra
 using Stheno: TuringGPC
 using Turing: @model
@@ -34,12 +37,12 @@ end
 
 N = 100;
 x = collect(range(-5.0, 5.0; length=N));
-x_pr = collect(range(-5.0, 5.0; length=100));
+# x_pr = collect(range(-5.0, 5.0; length=25));
 
 @model gaussian_regression(y) = begin
     f = GP(eq(), TuringGPC())
     fx ~ f(x, 1e-9)
-    # fx_pr ~ f(x_pr, 1e-9)
+    # fx_pr ~ f(x_pr, 1e-1)
     y ~ Product(Normal.(fx, 0.1))
     return fx, y
 end
@@ -54,8 +57,8 @@ fx, y = gaussian_regression()();
 
 plotly();
 plot(x, fx; label="Latent at observations");
-scatter!(x, y; label="Observations");
-plot!(x_pr, fx_pr; label="")
+scatter!(x, y; label="Observations")
+# plot!(x_pr, fx_pr; label="")
 
 
 
@@ -63,8 +66,8 @@ plot!(x_pr, fx_pr; label="")
 # Do posterior inference via HMC (NUTS)
 #
 
-N, N_burn, N_thin = 1000, 0, 1;
-chain = sample(gaussian_regression(y), NUTS(N, N_burn, 0.6));
+N, N_burn, N_thin = 1_000, 200, 1;
+chain = sample(gaussian_regression(y), NUTS(N, N_burn, 0.2));
 
 fx_slices = get(chain, :fx)[1];
 fx_samples = Float64.(hcat(fx_slices...));
@@ -75,7 +78,6 @@ fx_samples = Float64.(hcat(fx_slices...));
 plot(x, fx_samples[N_burn+1:N_thin:end, :]'; label="", linecolor=:red);
 scatter!(x, y);
 plot!(x, fx; linecolor=:blue)
-
 # plot!(x_pr, fx_pr_samples[N_burn+1:N_thin:end, :]'; linecolor=:green, label="")
 
 
