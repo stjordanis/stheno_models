@@ -123,7 +123,47 @@ end
 
 # This is a quick bit of convenience functionality that isn't exported.
 function plot_1d_posterior(x_tr, y_tr, x, y′, marginals, samples_name, all_name)
+
+end
+
+
+
+
+
+#
+# Simple Conditioning Example
+#
+
+let
+
+    local_plot_dir = joinpath(plot_dir, "simple_conditioning")
+
+    rng = MersenneTwister(123456);
+
+    # Generate inputs and pick some to condition on.
+    N, S, D = 11, 5, 5
+    x = collect(range(0, N-1; length=250))
+    x_tr = [1.5, 1.8, 4.7]
+
+    # Generate observations and condition on them.
+    y_tr, y_truth = rand([f(x_tr, 1e-9), f(x, 1e-9)])
+    f′ = f | (f(x_tr, 1e-9) ← y_tr)
+
+    # Generate samples from the posterior distribution.
+    y′ = rand(f′(x, 1e-9), S)
+    posterior_marginals = marginals(f′(x, 1e-9))
+
     plt = plot(ylim=[-4.0, 4.0])
+
+    # Plot sample from the prior.
+    plot!(plt, x, y_truth;
+        linewidth=1.0,
+        linestyle=:dash,
+        linecolor=:blue,
+    )
+    savefig(plt, joinpath(local_plot_dir, "sample_from_prior.pdf"))
+
+    # Plot points that we'll observe.
     plot!(plt, x_tr, y_tr;
         linewidth=0,
         marker=:o,
@@ -132,14 +172,16 @@ function plot_1d_posterior(x_tr, y_tr, x, y′, marginals, samples_name, all_nam
         markersize=10,
         markerstrokewidth=0,
     )
+    savefig(plt, joinpath(local_plot_dir, "obs_points.pdf"))
+
     plot!(plt, x, y′;
         linecolor=:blue,
         linewidth=0.5,
         label="",
     )
-    savefig(plt, samples_name)
+    savefig(plt, joinpath(local_plot_dir, "posterior_samples.pdf"))
 
-    m, σ = mean.(marginals), std.(marginals)
+    m, σ = mean.(posterior_marginals), std.(posterior_marginals)
     plot!(plt, x, m;
         linewidth=2.0,
         linecolor=:blue,
@@ -152,29 +194,7 @@ function plot_1d_posterior(x_tr, y_tr, x, y′, marginals, samples_name, all_nam
         fillcolor=:blue,
         label="",
     )
-    savefig(plt, all_name)
-end
-
-# Conditioning
-let
-
-    rng = MersenneTwister(123456);
-
-    # Generate inputs and pick some to condition on.
-    N, S, D = 11, 5, 5
-    x = collect(range(0, N-1; length=N * D))
-    x_tr = [1.5, 1.8, 4.7]
-
-    # Generate observations and condition on them.
-    y_tr = rand(f(x_tr, 1e-9))
-    f′ = f | (f(x_tr, 1e-9) ← y_tr)
-
-    # Generate samples from the posterior distribution.
-    y′ = rand(f′(x, 1e-9), S)
-    posterior_marginals = marginals(f′(x, 1e-9))
-    samples_name = joinpath("intro_to_gps", "figs", "samples_posterior_$(length(x_tr)).pdf")
-    all_name = joinpath("intro_to_gps", "figs", "all_posterior_$(length(x_tr)).pdf")
-    plot_1d_posterior(x_tr, y_tr, x, y′, posterior_marginals, samples_name, all_name)
+    savefig(plt, joinpath(local_plot_dir, "posterior_marginals.pdf"))
 end
 
 
