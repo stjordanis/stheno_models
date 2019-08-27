@@ -1,5 +1,5 @@
 using Stheno, Plots, Random, Statistics
-using Stheno: @model
+using Stheno: @model, EQ
 
 
 
@@ -7,8 +7,8 @@ using Stheno: @model
 
 # Define a distribution over f₁, f₂, and f₃, where f₃(x) = f₁(x) + f₂(x).
 @model function model()
-    f₁ = GP(randn(), eq())
-    f₂ = GP(eq())
+    f₁ = GP(randn(), EQ())
+    f₂ = GP(EQ())
     f₃ = f₁ + f₂
     return f₁, f₂, f₃
 end

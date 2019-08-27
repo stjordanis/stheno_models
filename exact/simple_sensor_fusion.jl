@@ -1,5 +1,5 @@
 using Stheno, Random, Plots, Statistics
-using Stheno: @model
+using Stheno: @model, EQ, Noise
 
 ###########################  Define and inspect our model  ###########################
 
@@ -17,11 +17,11 @@ bias is known to be 3.5. The model below specifies a model for this scenario.
 @model function model()
 
     # Define a smooth latent process that we wish to infer.
-    f = GP(eq())
+    f = GP(EQ())
 
     # Define the two noise processes described.
-    noise1 = GP(x->sin.(x) .- 5.0 .+ sqrt.(abs.(x)), noise(α=1e-2))
-    noise2 = GP(3.5, noise(α=1e-1))
+    noise1 = sqrt(1e-2) * GP(Noise()) + (x->sin.(x) .- 5.0 .+ sqrt.(abs.(x)))
+    noise2 = sqrt(1e-1) * GP(3.5, Noise())
 
     # Define the processes that we get to observe.
     y1 = f + noise1
