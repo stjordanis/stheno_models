@@ -1,4 +1,4 @@
-using Stheno, Plots, Random, FileIO, LatexPrint, PyCall
+using Stheno, Plots, Random, FileIO, LatexPrint
 using Stheno: GPC
 pyplot();
 
@@ -22,13 +22,8 @@ let
         end
 
         # Plot samples.
-        plt = plot(xlim=[0, N-1], ylim=[-3, 3])
-        plot!(plt, x, fs;
-            marker=:x,
-            label="",
-            linecolor=:blue,
-            markercolor=:blue,
-        )
+        plt = plot(xlim=[0, N-1], ylim=[-3, 3], xticks=0:N-1)
+
         savefig(plt, joinpath(plot_dir, "range_samples_0.pdf"))
 
         # Save covariance matrix
@@ -47,7 +42,7 @@ let
             end
 
             # Plot samples.
-            plt = plot(xlim=[0, N-1], ylim=[-3, 3])
+            plt = plot(xlim=[0, N-1], ylim=[-3, 3], xticks=0:N-1)
             plot!(plt, x, hcat(ys...);
                 marker=:x,
                 label="",
@@ -69,7 +64,7 @@ let
         f = GP(0, eq(l=0.3), GPC())
         x = collect(0:N-1)
         fs = rand(rng, f(x, 1e-12), S)
-        plt = plot(xlim=[0, N-1], ylim=[-3, 3])
+        plt = plot(xlim=[0, N-1], ylim=[-3, 3], xticks=0:N-1)
         plot!(plt, x, fs;
             marker=:x,
             label="",
@@ -84,7 +79,7 @@ let
         f = GP(0, eq(l=2), GPC())
         x = collect(0:N-1)
         fs = rand(rng, f(x, 1e-12), S)
-        plt = plot(xlim=[0, N-1], ylim=[-3, 3])
+        plt = plot(xlim=[0, N-1], ylim=[-3, 3], ticks=0:N-1)
         plot!(plt, x, fs;
             marker=:x,
             label="",
@@ -107,7 +102,7 @@ let
         end
 
         # Plot samples with lines.
-        plt = plot(xlim=[0.0, N-1], ylim=[-3, 3])
+        plt = plot(xlim=[0.0, N-1], ylim=[-3, 3], xticks=0:N-1)
         plot!(plt, x, hcat(ys...);
             label="",
             linecolor=:blue,
@@ -120,13 +115,6 @@ let
         x_prev = x
     end
 end
-
-# This is a quick bit of convenience functionality that isn't exported.
-function plot_1d_posterior(x_tr, y_tr, x, y′, marginals, samples_name, all_name)
-
-end
-
-
 
 
 
@@ -160,6 +148,7 @@ let
         linewidth=1.0,
         linestyle=:dash,
         linecolor=:blue,
+        label="",
     )
     savefig(plt, joinpath(local_plot_dir, "sample_from_prior.pdf"))
 
@@ -223,19 +212,17 @@ end
 using Stheno: @model
 
 @model function model()
-    f₁ = GP(randn(), eq())
-    f₂ = GP(eq())
+    f₁ = GP(4.0, eq())
+    f₂ = GP(8.0, eq())
     f₃ = f₁ + f₂
     return f₁, f₂, f₃
 end
 
+
+
+
 let
-
     local_plot_dir = joinpath(plot_dir, "additive_decomposition")
-
-    #
-    # MODIFY TO VIEW SAMPLES FROM THE FUNCTIONS AND THEIR SUM AND THE OBSERVATIONS!
-    #
 
     # Randomly sample `N₁` locations at which to measure `f` using `y1`, and `N2` locations
     # at which to measure `f` using `y2`.
@@ -244,7 +231,7 @@ let
     f₁, f₂, f₃ = model();
 
     # Define some plotting stuff.
-    Np, S = 500, 5;
+    Np, S = 500, 15;
     Xp = range(-2.5, stop=12.5, length=Np);
 
     # Generate some toy observations of `f₁` and `f₃`.
@@ -267,9 +254,9 @@ let
     μf₃′, σf₃′ = mean.(ms3), std.(ms3);
 
 
+    marker_size = 8
 
-    posterior_plot = plot(ylim=[-5, 5]);
-
+    posterior_plot = plot(ylim=[1, 17]);
 
     #
     # Plot initial samples
@@ -278,22 +265,21 @@ let
         linewidth=1.0,
         linestyle=:dash,
         linecolor=:red,
-        label="f1 sample",
+        label="",
     )
     plot!(posterior_plot, Xp, y₂_exact;
         linewidth=1.0,
         linestyle=:dash,
         linecolor=:green,
-        label="f2 sample",
+        label="",
     )
     plot!(posterior_plot, Xp, y₃_exact;
         linewidth=1.0,
         linestyle=:dash,
         linecolor=:blue,
-        label="f3 sample",
+        label="",
     )
     savefig(posterior_plot, joinpath(local_plot_dir, "sample_paths.pdf"))
-
 
     #
     # Plot observations
@@ -302,7 +288,7 @@ let
         markercolor=:blue,
         markershape=:circle,
         markerstrokewidth=0.0,
-        markersize=4,
+        markersize=marker_size,
         markeralpha=0.7,
         label="",
     )
@@ -310,12 +296,11 @@ let
         markercolor=:red,
         markershape=:circle,
         markerstrokewidth=0.0,
-        markersize=4,
+        markersize=marker_size,
         markeralpha=0.7,
         label="",
     )
     savefig(posterior_plot, joinpath(local_plot_dir, "sample_paths_points.pdf"))
-
 
     #
     # Plot posterior of third process
@@ -335,10 +320,9 @@ let
     plot!(posterior_plot, Xp, μf₃′;
         linecolor=:blue,
         linewidth=2.0,  
-        label="f3",
+        label="",
     )
     savefig(posterior_plot, joinpath(local_plot_dir, "posterior_3.pdf"))
-
 
     #
     # Plot posterior of first process
@@ -358,10 +342,9 @@ let
     plot!(posterior_plot, Xp, μf₁′;
         linecolor=:red,
         linewidth=2.0,
-        label="f1",
+        label="",
     )
     savefig(posterior_plot, joinpath(local_plot_dir, "posterior_1_3.pdf"))
-
 
     #
     # Plot posterior of second process
@@ -381,8 +364,125 @@ let
     plot!(posterior_plot, Xp, μf₂′;
         linecolor=:green,
         linewidth=2.0,
-        label="f2",
+        label="",
     )
     savefig(posterior_plot, joinpath(local_plot_dir, "additive_decomposition.pdf"))
 end
+
+
+#
+# Example: composition
+#
+
+@model function composition_model(l)
+    f = GP(eq())
+    g = stretch(f, l)
+    return f, g
+end
+
+# How do best visualise this stuff? Do we look at mulitple length scales and produce a gif?
+let
+    local_plot_dir = joinpath(plot_dir, "composition")
+
+    # Produce GPs and input locations.
+    rng, N, Np, S = MersenneTwister(123456), 5, 250, 15
+    f, g = composition_model(0.5)
+    x, xp = randn(rng, N), range(-5.0, 5.0; length=Np)
+
+    # Generate samples.
+    y, y_truth = rand(rng, [g(x, 1e-9), g(xp, 1e-9)])
+
+    # Generate the posterior process.
+    g′ = g | (g(x, 1e-9) ← y)
+
+    # Generate posterior samples.
+    g′xp = rand(rng, g′(xp, 1e-9), S)
+
+    # Compute posterior marginals.
+    msg = marginals(g′(xp))
+    m, σ = mean.(msg), std.(msg)
+
+    plt = plot(ylim=[-2.5, 3.2])
+
+    # Plot initial sample.
+    plot!(plt, xp, y_truth;
+        linewidth=1.0,
+        linestyle=:dash,
+        linecolor=:green,
+        label="",
+    )
+    savefig(plt, joinpath(local_plot_dir, "sample_path.pdf"))
+
+    # Plot points that we'll observe.
+    plot!(plt, x, y;
+        linewidth=0,
+        marker=:o,
+        markercolor=:green,
+        label="",
+        markersize=10,
+        markerstrokewidth=0,
+    )
+    savefig(plt, joinpath(local_plot_dir, "obs_points.pdf"))
+
+    plot!(plt, xp, g′xp;
+        linecolor=:green,
+        linewidth=0.5,
+        label="",
+    )
+    savefig(plt, joinpath(local_plot_dir, "posterior_samples.pdf"))
+
+    plot!(plt, xp, m;
+        linewidth=2.0,
+        linecolor=:green,
+        label="",
+    )
+    plot!(plt, xp, [m m];
+        linewidth=0,
+        fillrange=[m .- 3 .* σ, m .+ 3 .* σ],
+        fillalpha=0.2,
+        fillcolor=:green,
+        label="",
+    )
+    savefig(plt, joinpath(local_plot_dir, "posterior_marginals.pdf"))
+
+end
+
+
+# Distinction between true thing, what I've observed, and what I know about the true thing given what I've observed
+# Make it explicit that we're conditioning jointly on _all_ observations at the same time
+# ADD SOME MOTIVATION IN A SLIDE!
+
+# # Sample model 1 for slide.
+# @model function model()
+#     f₁ = GP(m₁, c₁)
+#     f₂ = GP(m₂, c₂)
+#     f₃ = f₁ + f₂
+#     f₄ = f₁ | (f₃(x) ← y)
+# end
+
+
+# chandrasekhar recursions in kalman filtering
+
+
+# ethanmatlin@gmail.com
+# federal reserve guy - SMC package. Collaborate with Turing?
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

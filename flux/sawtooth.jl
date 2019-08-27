@@ -121,9 +121,10 @@ Zygote.@adjoint (::Type{T})(dt::Vector) where T<:DataTransform = T(dt), ȳ -> (
 
     σw, σb = exp(first(θ[:log_σw])) + 1e-6, exp(first(θ[:log_σb])) + 1e-6
     lw, lb = exp(first(θ[:log_lw])) + 1e-6, exp(first(θ[:log_lb])) + 1e-6
+    mw, mb = first(θ[:m_w]), first(θ[:m_b])
 
-    w = σw * stretch(GP(first(θ[:m_w]), eq()), lw) + 1
-    b = σb * stretch(GP(first(θ[:m_b]), eq()), lb)
+    w = σw * stretch(GP(mw, eq()), lw) + 1
+    b = σb * stretch(GP(mb, eq()), lb)
     f = b + w * DataTransform(predict(θ, Y, relu))
     return w, b, f
 end
@@ -147,11 +148,15 @@ end
 );
 
 T = 1000;
-t = collect(1:size(Y, 2));
+t = collect(1:length(y));
 w, b, _ = modulation_gps(θ0, Y);
 ws, bs = rand(MersenneTwister(123456), [w(t, 1e-6), b(t, 1e-6)]);
-fs = ws .* sawtooth.(x[N+1:end]) .+ bs;
+fs = ws .* sawtooth.(x) .+ bs;
 ys = fs .+ sqrt(1e-3) .* randn(MersenneTwister(123456), length(fs));
+
+ys_target, y_pad = ys[N+1:end], ys[1:N];
+Y = to_ar_data(ys_target, N, y_pad);
+
 
 
 plot(ys; linecolor=:red, label="y");
@@ -159,8 +164,9 @@ plot!(ws; linecolor=:blue, label="w");
 plot!(bs; linecolor=:green, label="b")
 
 Ntr = 500;
+t = collect(1:size(Y, 2));
 Ytr, Yte = Y[:, 1:Ntr], Y[:, Ntr+1:end];
-ystr, yste = ys[1:Ntr], ys[Ntr+1:end];
+ystr, yste = ys_target[1:Ntr], ys_target[Ntr+1:end];
 ttr, tte = t[1:Ntr], t[Ntr+1:end];
 
 
@@ -326,7 +332,7 @@ let
     #
     # Plot only predictions over the training and test data.
     #
-    prediction_plot = plot()
+    prediction_plot = plot(ylim=[-1, 1])
     plot!(prediction_plot, t, [mean.(ms_f′) mean.(ms_f′)];
         linewidth=0.0,
         fillrange=[mean.(ms_f′) .- 3 .* std.(ms_f′), mean.(ms_f′) .+ 3 * std.(ms_f′)],

@@ -35,7 +35,7 @@ end
 # Define a vaguely interesting non-Gaussian regression problem
 #
 
-N = 100;
+N = 50;
 x = collect(range(-5.0, 5.0; length=N));
 # x_pr = collect(range(-5.0, 5.0; length=25));
 
@@ -66,7 +66,7 @@ scatter!(x, y; label="Observations")
 # Do posterior inference via HMC (NUTS)
 #
 
-N, N_burn, N_thin = 1_000, 200, 1;
+N, N_burn, N_thin = 1_500, 500, 10;
 chain = sample(gaussian_regression(y), NUTS(N, N_burn, 0.2));
 
 fx_slices = get(chain, :fx)[1];
@@ -87,7 +87,7 @@ plot!(x, fx; linecolor=:blue)
 # Logistic regression equivalent example
 #
 
-x = collect(range(-5.0, 5.0; length=100));
+x = collect(range(-5.0, 5.0; length=50));
 
 @model logistic_regression(y) = begin
     f = 5.0 * GP(eq(), TuringGPC())
@@ -98,11 +98,12 @@ end
 
 fx, y = logistic_regression()();
 
-chain = sample(logistic_regression(y), NUTS(1_000, 200, 0.6));
-fx_slices = get(chain, :fx)[1];
-fx_samples = Float64.(hcat(fx_slices...));
+N, N_burn, N_thin = 2_500, 500, 10;
+chain = sample(logistic_regression(y), NUTS(N, N_burn, 0.25));
+fx_slices = first(get(chain, :fx));
+fx_samples = Float64.(hcat(fx_slices...))[N_burn+1:N_thin:end, :]';
 
-plot(x, fx_samples[200:50:end, :]'; label="", linecolor=:red);
+plot(x, fx_samples; label="", linecolor=:red);
 scatter!(x, y);
 plot!(x, fx; linecolor=:blue)
 
@@ -111,31 +112,176 @@ plot!(x, fx; linecolor=:blue)
 # Poisson regression
 #
 
-x = vcat(range(-5.0, -2.5; length=13), range(1.0, 2.0; length=12));
-xpr = collect(range(-5.0, 5.0; length=50));
-
+x = range(-5.0, 5.0; length=50);
 
 @model poisson_regression(y) = begin
     f = GP(eq(), TuringGPC())
     fx ~ f(x, 1e-9)
-    fx_pr ~ f(xpr, 1e-9)
     y ~ Product(Poisson.(exp.(fx)))
-    return fx, fx_pr, y
+    return fx, y
 end
 
-fx, fx_pr, y = poisson_regression()();
+fx, y = poisson_regression()();
 
-plot(x, y);
-plot!(x, fx);
-plot!(xpr, fx_pr)
+N, N_burn, N_thin = 5_000, 4_000, 10;
+chain = sample(poisson_regression(y), HMC(N, 3e-3, 15));
 
-chain = sample(poisson_regression(y), NUTS(10, 0, 0.6));
-fx_slices = get(chain, :fx)[1];
-fx_samples = Float64.(hcat(fx_slices...));
+let
+    fx_slices = get(chain, :fx)[1];
+    fx_samples_full = Float64.(hcat(fx_slices...))[N_burn+1:end, :]'
+    fx_samples = fx_samples_full[:, 1:N_thin:end];
 
-plot(x, fx_samples[:, :]'; label="", linecolor=:red);
-scatter!(x, y);
-plot!(x, fx; linecolor=:blue)
+    pyplot()
+    plt = plot()
+    plot!(x, fx_samples;
+        label="",
+        linecolor=:blue,
+        linealpha=0.2,
+        linewidth=0.7,
+    )
+    plot!(x, fx;
+        label="",
+        linecolor=:blue,
+        linestyle=:dash,
+        linewidth=2.0,
+    )
+
+    m, σ = vec(mean(fx_samples_full; dims=2)), vec(std(fx_samples_full; dims=2))
+    plot!(x, m;
+        label="",
+        linecolor=:blue,
+        linealpha=1.0,
+        linewidth=2.0,
+    )
+    plot!(plt, x, [m m];
+        linewidth=0.0,
+        fillrange=[m .- 3 .* σ, m .+ 3 * σ],
+        fillalpha=0.3,
+        fillcolor=:blue,
+        label="",
+    )
+
+    scatter!(plt, x, y;
+        label="",
+        markershape=:x,
+        markercolor=:black,
+        markersize=6,
+        markeralpha=1,
+        markerstrokewidth=0.8,
+    )
+    savefig(plt, joinpath("intro_to_gps", "figs", "poisson_regression_posterior.pdf"))
+end
 
 
 
+    # g′ = g | (f₁(x₁) ← y₁, f₂(x₂) ← y₂)
+
+
+    # rand(rng, [f₁(x₁), f₂(x₂)], N_samples)
+
+
+    # logpdf([f₁(x₁), f₂(x₂)], [y₁, y₂])
+
+
+
+
+
+#
+# Heteroscedastic Gaussian processes - only sort of works
+#
+
+x = range(-5.0, 5.0; length=50);
+
+@model heteroscedastic_regresion(y) = begin
+
+    # Specify distribution over noise
+    logσx ~ (2 * GP(eq(l=0.5), TuringGPC()))(x, 1e-9)
+
+    # Specify latent GP
+    fx ~ GP(eq(l=2.0), TuringGPC())(x, 1e-9)
+
+    # Generate observations
+    y ~ Product(Normal.(softplus.(logσx) .* fx, 0.1))
+
+    return logσx, fx, y
+end
+
+# Generate from the prior
+logσx, fx, y = heteroscedastic_regresion()()
+
+# Plot the samples from the prior
+let
+    pyplot()
+    plt = plot()
+    σ = softplus.(logσx)
+    plot!(x, σ; linecolor=:blue, label="process std")
+    plot!(x, fx; linecolor=:red, label="latent function")
+    plot!(x, σ .* fx; linecolor=:green, label="function")
+    scatter!(x, y; markercolor=:green)
+    display(plt)
+end
+
+# Perform posterior inference
+N, N_burn, N_thin = 1_000, 1_50, 10;
+chain = sample(heteroscedastic_regresion(y), HMC(N, 1e-3, 10));
+
+# Plot the results of posterior inference
+let
+    fx_slices = first(get(chain, :fx))
+    fx_samples = Float64.(hcat(fx_slices...))[N_burn+1:N_thin:end, :]'
+
+    logσx_slices = first(get(chain, :logσx))
+    logσx_samples = softplus.(Float64.(hcat(logσx_slices...))[N_burn+1:N_thin:end, :]')
+
+    pyplot()
+    plt = plot()
+
+    plot!(plt, x, logσx_samples[:, 1]; label="σ", linecolor=:red, alpha=0.2)
+    plot!(plt, x, logσx_samples; label="", linecolor=:red, alpha=0.2)
+    plot!(plt, x, softplus.(logσx);
+        label="",
+        linecolor=:red,
+        linestyle=:dash,
+        linewidth=2.0,
+    )
+
+    # plot!(plt, x, fx_samples[:, 1]; label="f", linecolor=:green, alpha=0.2)
+    # plot!(plt, x, fx_samples; label="", linecolor=:green, alpha=0.2)
+    # plot!(plt, x, fx;
+    #     label="",
+    #     linecolor=:green,
+    #     linestyle=:dash,
+    #     linewidth=2.0,
+    # )
+
+    plot!(plt, x, logσx_samples[:, 1] .* fx_samples[:, 1];
+        label="σ * f",
+        linecolor=:blue,
+        alpha=0.2,
+    )
+    plot!(plt, x, logσx_samples .* fx_samples;
+        label="",
+        linecolor=:blue,
+        alpha=0.2,
+    )
+    plot!(plt, x, softplus.(logσx) .* fx;
+        label="",
+        linecolor=:blue,
+        linestyle=:dash,
+        linewidth=2.0,
+    )
+
+    scatter!(plt, x, y;
+        label="observations",
+        markershape=:x,
+        markercolor=:black,
+        markersize=6,
+        markeralpha=1,
+        markerstrokewidth=0.8,
+    )
+end
+
+
+function jacobian(b::ADBijector{<: ForwardDiffAD}, y::Real)
+    ForwardDiff.derivative(z -> transform(b, z), y)
+end
